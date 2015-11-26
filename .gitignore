@@ -3,9 +3,10 @@
 .class
 .jar
 .cache
+.cache-main
 .project
 .classpath
-/target
+**/target/**
 /build
 .settings
 
