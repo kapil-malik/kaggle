@@ -7,6 +7,7 @@ import org.apache.spark.sql.SQLContext
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.storage.StorageLevel
 import com.kmalik.kaggle.utils.Utils
+import org.apache.spark.sql.DataFrame
 
 object SimpleTrain extends Serializable {
 
@@ -21,23 +22,20 @@ object SimpleTrain extends Serializable {
     val iterations = Utils.readArg(args, "iterations", 100)
     val blockSize = Utils.readArg(args, "blockSize", 128)
     val seed = Utils.readArg(args, "seed", 13309)
+                    
+    val df = DRUtils.loadLabelledDf(sc, sqc, dataFile, partitions)    
+    val layers = DRUtils.nnLayers(layerStr)
     
-    val data = sc.textFile(dataFile, partitions)
-    			 .filter(!_.startsWith("label"))
-                 .filter(_.split(",").length == 785)
-                 .map(line => {
-                   val features = line.split(",").map(_.toDouble)
-                   (features(0), Vectors.dense(features.slice(1, 785)))
-                 })            
-                 
-    val df = sqc.createDataFrame(data)
-       			.toDF("label", "features")
-    val hiddenLayers = layerStr.split(",").map(_.toInt)
-    val layers = Array[Int](784) ++ hiddenLayers ++ Array[Int](10)
-                 
+    runANN(df, trainRatio, layers, blockSize, seed, iterations)
+  }
+  
+  def runANN(df:DataFrame, trainRatio:Double, layers:Array[Int], 
+    blockSize:Int, seed:Long, iterations:Int) = {
+    println("Train Ratio : " + trainRatio)
+    
     val splits = df.randomSplit(Array(trainRatio, 1-trainRatio), seed = seed)
-    val train = splits(0).persist(StorageLevel.MEMORY_ONLY_SER)
-    val test = splits(1).persist(StorageLevel.MEMORY_ONLY_SER)
+    val train = splits(0)
+    val test = splits(1)
         
     val trainer = new MultilayerPerceptronClassifier()
     					.setLayers(layers)
@@ -45,6 +43,8 @@ object SimpleTrain extends Serializable {
     					.setSeed(seed)
     					.setMaxIter(iterations)
     
+    println(trainer.explainParams)
+    					
     val model = trainer.fit(train)
     val result = model.transform(test)
     val predictionAndLabels = result.select("prediction", "label")
