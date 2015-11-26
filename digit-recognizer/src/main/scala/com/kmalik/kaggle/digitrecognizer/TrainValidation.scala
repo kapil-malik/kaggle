@@ -82,6 +82,10 @@ object TrainValidation {
     DRUtils.saveDf(testPredictionLabels, outputDir+"/TestPredictions")
     
     if (predictFile != null) {
+      val predictSet = DRUtils.loadUnlabelledDf(sc, sqc, predictFile, partitions)
+      val predictResult = model.transform(predictSet)
+      val predictions = predictResult.select("prediction")
+      DRUtils.saveDf(predictions, outputDir+"/Predictions")
     }
     				   
     inputs.map(_.toString)

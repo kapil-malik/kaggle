@@ -36,7 +36,8 @@ object DRUtils {
   }
   
   def saveDf(df:DataFrame, outPath:String, delim:String = "\t") = {
-	  df.write
+	  df.coalesce(1)
+	    .write
     	.format("com.databricks.spark.csv")
     	.option("delimiter", delim)
     	.save(outPath)
