@@ -3,16 +3,15 @@ package com.kmalik.kaggle.digitrecognizer
 import org.apache.spark.SparkContext
 import org.apache.spark.ml.classification.MultilayerPerceptronClassifier
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
-import org.apache.spark.ml.param.ParamMap
 import org.apache.spark.ml.param.ParamPair
+import org.apache.spark.ml.tuning.CrossValidator
+import org.apache.spark.ml.tuning.CrossValidatorModel
 import org.apache.spark.ml.tuning.ParamGridBuilder
-import org.apache.spark.ml.tuning.TrainValidationSplit
 import org.apache.spark.sql.SQLContext
 import com.kmalik.kaggle.utils.Utils
-import org.apache.spark.ml.tuning.TrainValidationSplitModel
 import org.apache.spark.sql.functions._
 
-object TrainValidation {
+object CrossValidation {
 
   def main(args: Array[String]): Unit = {
     val sc = new SparkContext
@@ -23,7 +22,7 @@ object TrainValidation {
     val outputDir = Utils.readArg(args, "output", dataFile+".out."+System.currentTimeMillis())
     val partitions = Utils.readArg(args, "partitions", 9)
     val trainRatio = Utils.readArg(args, "trainRatio", 0.8)
-    val tvRatio = Utils.readArg(args, "tvRatio", 0.7)
+    val numFolds = Utils.readArg(args, "numFolds", 10)
     
     val hiddenLayerOpts = Utils.readArg(args, "hiddenLayerOpts", "128")
     val iterationOpts = Utils.readArg(args, "iterationOpts", "100")
@@ -31,7 +30,7 @@ object TrainValidation {
 
     val seed = Utils.readArg(args, "seed", 13309)
     
-    val inputs = Array(dataFile, outputDir, partitions, trainRatio, tvRatio, 
+    val inputs = Array(dataFile, outputDir, partitions, trainRatio, numFolds, 
       hiddenLayerOpts, iterationOpts, blockSizeOpts, seed)
       
     inputs.map(_.toString)
@@ -61,13 +60,13 @@ object TrainValidation {
     val evaluator = new MulticlassClassificationEvaluator()
     						.setMetricName("precision")
     					
-    val tvSplit = new TrainValidationSplit()
+    val cvSplit = new CrossValidator()
     					.setEstimator(ann)
     					.setEstimatorParamMaps(paramGrid)
     					.setEvaluator(evaluator)
-    					.setTrainRatio(tvRatio)
+    					.setNumFolds(numFolds)    					
     					    					
-    val model = tvSplit.fit(train)
+    val model = cvSplit.fit(train)
     val modelDetails = getDetails(model)
     sc.parallelize(modelDetails, 1)
       .saveAsTextFile(outputDir+"/ModelDetails")
@@ -77,7 +76,7 @@ object TrainValidation {
     val testPredictionLabels = testResult.select("prediction", "label")
     val testPrecision = evaluator.evaluate(testPredictionLabels)
     
-    sc.parallelize(Array[String](s"TestPrecision : testPrecision"), 1)
+    sc.parallelize(Array[String](s"TestPrecision : $testPrecision"), 1)
       .saveAsTextFile(outputDir+"/TestPrecision")
               
     DRUtils.saveDf(testPredictionLabels, outputDir+"/TestPredictions")
@@ -98,7 +97,7 @@ object TrainValidation {
     modelDetails.foreach(println)
   }
 
-  private def getDetails(model:TrainValidationSplitModel):Array[String] = {
+  private def getDetails(model:CrossValidatorModel):Array[String] = {
     val bestParams = model.bestModel.parent.extractParamMap.toSeq
     val bestBlockSize = strParamValue(bestParams, "blockSize")
     val bestMaxIter = strParamValue(bestParams, "maxIter")

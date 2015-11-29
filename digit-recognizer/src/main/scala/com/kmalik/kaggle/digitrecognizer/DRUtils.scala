@@ -40,6 +40,7 @@ object DRUtils {
 	    .write
     	.format("com.databricks.spark.csv")
     	.option("delimiter", delim)
+    	.option("header", "true")
     	.save(outPath)
   }
   
