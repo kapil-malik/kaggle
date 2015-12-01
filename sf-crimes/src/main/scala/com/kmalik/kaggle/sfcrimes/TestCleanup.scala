@@ -8,24 +8,23 @@ import java.util.Date
 import java.text.SimpleDateFormat
 import org.apache.spark.storage.StorageLevel
 
-object TrainCleanup extends Serializable {
+object TestCleanup extends Serializable {
 
   def main(args: Array[String]): Unit = {
     val sc = new SparkContext()
     
-    val dataFile = Utils.readArg(args, "data", "/home/centos/kaggle/sf-crimes/train.csv")
+    val dataFile = Utils.readArg(args, "data", "/home/centos/kaggle/sf-crimes/test.csv")
     val outFile = Utils.readArg(args, "output", dataFile+".output."+System.currentTimeMillis())
     val partitions = Utils.readArg(args, "partitions", 9)
     
     val data = sc.textFile(dataFile, partitions)
     			 .persist(StorageLevel.MEMORY_ONLY_SER)
-
+    
     val header = data.first
     val dateIndex = DataProcessing.index(header, DataProcessing.DATES)
     val dowIndex = DataProcessing.index(header, DataProcessing.DAY_OF_WEEK)
     
-    val data2 = data.map(DataProcessing.cleanMultiValuedColumns)
-    				.map(x => DataProcessing.addDateColumns(x, dateIndex))
+    val data2 = data.map(x => DataProcessing.addDateColumns(x, dateIndex))
     				.map(x => DataProcessing.addWeekdayColumns(x, dowIndex))
     
     data2.coalesce(1)
@@ -33,4 +32,5 @@ object TrainCleanup extends Serializable {
     
     sc.stop()
   }
+
 }
