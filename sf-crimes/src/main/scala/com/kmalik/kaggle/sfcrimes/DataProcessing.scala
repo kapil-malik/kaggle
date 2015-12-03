@@ -3,6 +3,7 @@ package com.kmalik.kaggle.sfcrimes
 import java.text.SimpleDateFormat
 import java.util.regex.Pattern
 import java.util.regex.Matcher
+import org.apache.spark.sql.catalyst.expressions.WeekOfYear
 
 object DataProcessing extends Serializable {
   
@@ -22,29 +23,37 @@ object DataProcessing extends Serializable {
   val X_COORD = "X"
   val Y_COORD = "Y"  
   
+  val DATE_COLUMNS = Array[String]("DayOfMonth","Month","Hr","Quarter")
+  val WEEKEND = "Weekend"
+  
   def index(header:String, column:String):Int = header.split(",",-1).indexOf(column)
     
+  def buildDateColumns(dateStr:String) = {
+    val date = DATE_FORMAT.parse(dateStr)
+    val dayOfMonth = date.getDate()
+    val month = date.getMonth()
+    val hr = date.getHours()
+    val quarter = hr/3
+    Array[Double](dayOfMonth, month, hr, quarter)
+  }
+  
+  def buildWeekend(dayOfWeek:String) = if (dayOfWeek.equals("Saturday") || dayOfWeek.equals("Sunday")) 1.0 else 0.0
+  
   def addDateColumns(line:String, dateIndex:Int):String = {
     val dateStr = line.split(",", -1)(dateIndex)
     if (dateStr.equals(DATES)) {
-      return line + ",DayOfMonth,Month,Hr,Quarter"
+      return line + "," + DATE_COLUMNS.mkString(",") 
     } else {
-	    val date = DATE_FORMAT.parse(dateStr)
-	    val dayOfMonth = date.getDate()
-	    val month = date.getMonth()
-	    val hr = date.getHours()
-	    val quarter = hr/3
-	    return Array(line, dayOfMonth, month, hr, quarter).mkString(",")
+	    return line + "," + buildDateColumns(dateStr).mkString(",")
     }
   }
   
   def addWeekdayColumns(line:String, dayOfWeekIndex:Int):String = {
     val dayOfWeek = line.split(",",-1)(dayOfWeekIndex)
     if (dayOfWeek.equals(DAY_OF_WEEK)) {
-      return line + ",Weekend"
+      return line + "," + WEEKEND
     } else {
-      val weekend = dayOfWeek.equals("Saturday") || dayOfWeek.equals("Sunday")
-      return line + "," + (if(weekend) 1 else 0)
+      return line + "," + buildWeekend(dayOfWeek)
     }
   }
   
@@ -57,5 +66,5 @@ object DataProcessing extends Serializable {
     matcher.appendTail(sb); 
     sb.toString()
   }  
-
+  
 }
