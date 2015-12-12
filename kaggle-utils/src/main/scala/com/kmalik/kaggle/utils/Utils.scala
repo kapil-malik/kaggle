@@ -27,6 +27,12 @@ object Utils {
     if (matching.isDefined) matching.get.substring(argPrefix.length).toInt else defValue
   }
   
+  def readArg(args:Array[String],argName:String,defValue:Boolean):Boolean = {
+    val argPrefix = "--" + argName + "="
+    val matching = args.find(_.startsWith(argPrefix))
+    if (matching.isDefined) matching.get.substring(argPrefix.length).toBoolean else defValue
+  }
+  
   def readArg(args:Array[String],argName:String,defValue:Double):Double = {
     val argPrefix = "--" + argName + "="
     val matching = args.find(_.startsWith(argPrefix))

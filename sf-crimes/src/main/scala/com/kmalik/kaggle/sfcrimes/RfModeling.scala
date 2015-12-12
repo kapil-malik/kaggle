@@ -2,13 +2,14 @@ package com.kmalik.kaggle.sfcrimes
 
 import org.apache.spark.SparkContext
 import org.apache.spark.sql._
-import org.apache.spark.sql._
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.functions._
 import com.kmalik.kaggle.utils.Utils
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.ml.feature.StringIndexer
 import scala.collection.mutable.WrappedArray
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.sql.types.StructField
 
 object RfModeling extends Serializable {
 
@@ -40,69 +41,31 @@ object RfModeling extends Serializable {
     					})
     
     val df = sqc.createDataFrame(labelData)
-    			.toDF("label","row")
-    			
-    val dateIndex = DataProcessing.index(header, DataProcessing.DATES)
-    val dowIndex = DataProcessing.index(header, DataProcessing.DAY_OF_WEEK)
-    val districtIndex = DataProcessing.index(header, DataProcessing.PD_DISTRICT)
-    val xIndex = DataProcessing.index(header, DataProcessing.X_COORD)
-    val yIndex = DataProcessing.index(header, DataProcessing.Y_COORD)
+    			      .toDF("label","row")
     
-    sqc.udf.register("strColumn",
-        (row:String, index:Int) => row.split(",")(index))
+    val fXtractor = new FeatureExtractor(header)
+    val df2 = fXtractor.transform(df)
     
-    sqc.udf.register("numColumn",
-        (row:String, index:Int) => row.split(",")(index).toDouble)
-    
-    sqc.udf.register("dateColumn", 
-        (row:String, dateIndex:Int, index:Int) => DataProcessing.buildDateColumns(row.split(",")(dateIndex))(index))
-    
-    sqc.udf.register("weekend", 
-        (row:String, dowIndex:Int) => DataProcessing.buildWeekend(row.split(",")(dowIndex)))
-    
-    sqc.udf.register("features", 
-        (features:WrappedArray[Double]) => Vectors.dense(features.toArray))
-        
-    
-    val df2 = df.select(df("label"),
-    				callUDF("strColumn", df("row"), lit(districtIndex)).as("district"),
-    				callUDF("strColumn", df("row"), lit(dowIndex)).as("dayOfWeek"),
-    				callUDF("numColumn", df("row"), lit(xIndex)).as("xCoord"),
-    				callUDF("numColumn", df("row"), lit(yIndex)).as("yCoord"),
-            	 	callUDF("dateColumn", df("row"), lit(dateIndex), lit(0)).as("dayOfMonth"),
-            	 	callUDF("dateColumn", df("row"), lit(dateIndex), lit(1)).as("month"),
-            	 	callUDF("dateColumn", df("row"), lit(dateIndex), lit(2)).as("hr"),
-            	 	callUDF("dateColumn", df("row"), lit(dateIndex), lit(3)).as("quarter"),
-            	 	callUDF("weekend", df("row"), lit(dowIndex)).as("weekend")
-            		)
     val districtIndexer = new StringIndexer()
-    							.setInputCol("district")
-    							.setOutputCol("districtNum")
-    val df3 = districtIndexer.fit(df2).transform(df2)
-    
+    							              .setInputCol("district")
+    							              .setOutputCol("districtNum")
+    							              .fit(df2)
+    							            
     val dowIndexer = new StringIndexer()
-    							.setInputCol("dayOfWeek")
-    							.setOutputCol("dayOfWeekNum")
-    val df4 = dowIndexer.fit(df3).transform(df3)
+							            .setInputCol("dayOfWeek")
+							            .setOutputCol("dayOfWeekNum")
+							            .fit(df2)
+							            
+		val fCombiner = new FeatureCombiner(FeatureExtractor.featureNamesAndTypes)
+							            
+    val pipeline = new Pipeline()
+                        .setStages(Array(districtIndexer, dowIndexer, fCombiner))
     
-    val df5 = df4.select(df4("label"), 
-    					callUDF("features",
-    							array(
-    							df4("districtNum"),
-	    				    	df4("dayOfWeekNum"),
-	    				    	df4("xCoord"),
-	    				    	df4("yCoord"),
-	    				    	df4("dayOfMonth"),
-	    				    	df4("month"),
-	    				    	df4("hr"),
-	    				    	df4("quarter"),
-	    				    	df4("weekend"))
-	    				        ).as("features"))
-    saveDf(df5, outputDir + "/df", ",")
-    
-    sc.stop()
-  }
+    val df3 = pipeline.fit(df2).transform(df2)
+    saveDf(df3, outputDir + "/df", ",")
 
+    sc.stop
+  }
   
   def saveDf(df:DataFrame, outPath:String, delim:String = "\t") = {
 	  df.coalesce(1)
