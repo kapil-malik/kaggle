@@ -1,23 +1,24 @@
 package com.kmalik.kaggle.sfcrimes
 
 import org.apache.spark.SparkContext
-import org.apache.spark.sql.SQLContext
-import com.kmalik.kaggle.utils.Utils
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.classification.RandomForestClassificationModel
+import org.apache.spark.ml.classification.RandomForestClassifier
+import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
+import org.apache.spark.ml.feature.IndexToString
 import org.apache.spark.ml.feature.StringIndexer
 import org.apache.spark.ml.feature.VectorIndexer
-import org.apache.spark.ml.classification.RandomForestClassifier
+import org.apache.spark.ml.tuning.CrossValidator
 import org.apache.spark.ml.tuning.ParamGridBuilder
-import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.tuning.TrainValidationSplit
 import org.apache.spark.ml.tuning.TrainValidationSplitModel
-import org.apache.spark.ml.param.ParamPair
-import org.apache.spark.ml.feature.IndexToString
-import org.apache.spark.ml.Pipeline
+import org.apache.spark.sql.SQLContext
 import com.kmalik.kaggle.utils.DfUtils
-import org.apache.spark.ml.classification.RandomForestClassificationModel
-import org.apache.spark.storage.StorageLevel
+import com.kmalik.kaggle.utils.Utils
+import org.apache.spark.ml.tuning.CrossValidatorModel
+import org.apache.spark.mllib.tree.model.RandomForestModel
 
-object RfModeling extends Serializable {
+object RfModelingCV extends Serializable {
 
   def main(args: Array[String]): Unit = {    
     val sc = new SparkContext()
@@ -28,17 +29,17 @@ object RfModeling extends Serializable {
     val outputDir = Utils.readArg(args, "output", dataFile+".out."+System.currentTimeMillis())
     val partitions = Utils.readArg(args, "partitions", 9)
     val trainRatio = Utils.readArg(args, "trainRatio", 0.8)
-    val tvRatio = Utils.readArg(args, "tvRatio", 0.7)
+    val numFolds = Utils.readArg(args, "numFolds", 10)
     
-    val numTrees = Utils.readArg(args, "numTrees", 10)
-    val maxDepth = Utils.readArg(args, "maxDepth", 5)
-    val maxBins = Utils.readArg(args, "maxBins", 100)
+    val numTreesOpts = Utils.readArg(args, "numTreesOpts", "10")
+    val maxDepthOpts = Utils.readArg(args, "maxDepthOpts", "5")
+    val maxBinsOpts = Utils.readArg(args, "maxBinsOpts", "100")
     
     val evaluationMetric = Utils.readArg(args, "evaluationMetric", "precision")    
     val seed = Utils.readArg(args, "seed", 13309)
     
-    val inputs = Array(dataFile, outputDir, partitions, trainRatio, tvRatio, 
-      numTrees, maxDepth, maxBins, evaluationMetric, seed)
+    val inputs = Array(dataFile, outputDir, partitions, trainRatio, numFolds, 
+      numTreesOpts, maxDepthOpts, maxBinsOpts, evaluationMetric, seed)
           
     inputs.map(_.toString)
     	    .foreach(println)
@@ -62,33 +63,47 @@ object RfModeling extends Serializable {
                               .setMaxCategories(100)
                               .fit(df)
 
+    val numTreesOptions = numTreesOpts.split(",").map(_.toInt)
+    val maxDepthOptions = maxDepthOpts.split(",").map(_.toInt)
+    val maxBinsOptions = maxBinsOpts.split(",").map(_.toInt)
+    
     val rf = new RandomForestClassifier()
                   .setLabelCol("indexedLabel")
                   .setFeaturesCol("indexedFeatures")
-                  .setNumTrees(numTrees)
-                  .setMaxDepth(maxDepth)
-                  .setMaxBins(maxBins)
-        
+    
+    val paramGrid = new ParamGridBuilder()
+                        .addGrid(rf.numTrees, numTreesOptions)
+                        .addGrid(rf.maxDepth, maxDepthOptions)
+                        .addGrid(rf.maxBins, maxBinsOptions)
+                        .build()    
+    
+    val evaluator = new MulticlassClassificationEvaluator()
+    						        .setLabelCol("indexedLabel")
+                        .setPredictionCol("prediction")
+                        .setMetricName(evaluationMetric)
+                        
+    val crossValidator = new CrossValidator()
+                    					.setEstimator(rf)
+                    					.setEstimatorParamMaps(paramGrid)
+                    					.setEvaluator(evaluator)
+                    					.setNumFolds(numFolds)
+    
     val labelConverter = new IndexToString()
                           .setInputCol("prediction")
                           .setOutputCol("predictedLabel")
                           .setLabels(labelIndexer.labels)
   
     val pipeline = new Pipeline()
-                        .setStages(Array(labelIndexer, featureIndexer, rf, labelConverter))
+                        .setStages(Array(labelIndexer, featureIndexer, crossValidator, labelConverter))
   
     val model = pipeline.fit(train)
     
-    val rfModel = model.stages(2).asInstanceOf[RandomForestClassificationModel]
+    val cvModel = model.stages(2).asInstanceOf[CrossValidatorModel]
+    val rfModel = cvModel.bestModel.asInstanceOf[RandomForestClassificationModel]
     val modelParams = persistModel(rfModel, sc, outputDir)
     
     // Test the model on test set -
     val testResult = model.transform(test)
-    val evaluator = new MulticlassClassificationEvaluator()
-						        .setLabelCol("indexedLabel")
-                    .setPredictionCol("prediction")
-                    .setMetricName(evaluationMetric)
-
     val testMetric = evaluator.evaluate(testResult)    
     sc.parallelize(Array[String](s"$evaluationMetric : $testMetric"), 1)
       .saveAsTextFile(outputDir+"/TestMetric_" + evaluationMetric)
@@ -102,7 +117,7 @@ object RfModeling extends Serializable {
     	    .foreach(println)
     	    
     modelParams.foreach(println)
-  }  
+  }
  
   private def persistModel(rfModel:RandomForestClassificationModel, 
     sc:SparkContext, outputDir:String): Array[String] = {
@@ -121,4 +136,5 @@ object RfModeling extends Serializable {
       
     modelParams
   }
+  
 }

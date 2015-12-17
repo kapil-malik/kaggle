@@ -15,18 +15,16 @@ import org.apache.spark.ml.attribute.Attribute
 import org.apache.spark.ml.attribute.NominalAttribute
 import org.apache.spark.sql.types.StructField
 
-object FeatureCombiner {
-  private val featuresUdf = udf((features:WrappedArray[Double]) => Vectors.dense(features.toArray))
-  
-  private def nominal(name:String) = NominalAttribute.defaultAttr.withName(name)  
-  private def numeric(name:String) = NumericAttribute.defaultAttr.withName(name)
-}
-
 class FeatureCombiner(override val uid: String, 
   private val ftNameTypes:Array[(String, Boolean)]) extends Transformer {
   
   def this(ftNameTypes:Array[(String, Boolean)]) = this(Identifiable.randomUID("fCmb"), ftNameTypes)
   def this(ftNames:Array[String]) = this(Identifiable.randomUID("fCmb"), ftNames.map(x => (x, true)))
+  
+  private val featuresUdf = udf((features:WrappedArray[Double]) => Vectors.dense(features.toArray))
+  
+  private def nominal(name:String) = NominalAttribute.defaultAttr.withName(name)  
+  private def numeric(name:String) = NumericAttribute.defaultAttr.withName(name)
   
   private val featuresField = buildFeaturesField()
   
@@ -35,7 +33,7 @@ class FeatureCombiner(override val uid: String,
       val labelCol = df("label")
       val fColArray = ftNameTypes.map(_._1).map(x => df(x))
       val fArrayCol = array(fColArray:_*)
-      val featuresCol = FeatureCombiner.featuresUdf(fArrayCol).as("features")
+      val featuresCol = featuresUdf(fArrayCol).as("features")
       df.select(labelCol, featuresCol)
     } else {
       df
@@ -58,7 +56,7 @@ class FeatureCombiner(override val uid: String,
       val ftAttrs = ftNameTypes.map(x=> {
         val name = x._1
         val isNominal = x._2
-        val fAttr = if(isNominal) FeatureCombiner.nominal(name) else FeatureCombiner.numeric(name) 
+        val fAttr = if(isNominal) nominal(name) else numeric(name) 
         fAttr.asInstanceOf[Attribute]
       })
       new AttributeGroup("features", ftAttrs).toStructField()
