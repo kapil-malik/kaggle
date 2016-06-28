@@ -5,14 +5,15 @@ import java.io.File
 import scala.collection.mutable.{ListBuffer => uList, Map => uMap}
 import scala.util.Try
 import java.io.PrintWriter
+import com.kmalik.kaggle.utils.Utils
 
-object DataPrep {
+object DataCleanup {
 
-  private val FLUSH_SIZE = 10000
+  private val FLUSH_SIZE = 10000L
   private val MAX_OPEN_LINES = 100
   
   def cleanMultilineCsv(inputPath:String, outputPath:String, 
-    flushSize:Int = FLUSH_SIZE, maxOpenLines:Int = MAX_OPEN_LINES) = {
+    flushSize:Long = FLUSH_SIZE, maxOpenLines:Int = MAX_OPEN_LINES) = {
     println("Start")
     val reader = Source.fromFile(new File(inputPath)).getLines()
     val writer = new PrintWriter(new File(outputPath))
@@ -124,7 +125,7 @@ object DataPrep {
   class CrossLineTracker(
     private val header:String,
     private val writer:PrintWriter,
-    private val flushSize:Int = FLUSH_SIZE, 
+    private val flushSize:Long = FLUSH_SIZE, 
     private val maxOpenLines:Int = MAX_OPEN_LINES
     ) {
     private val columns = header.split(",")
@@ -211,12 +212,12 @@ object DataPrep {
   }
   
   def main(args:Array[String]):Unit = {
-    val inFile = if(args.length > 0) args(0) 
-                 else "/home/kapil/Rough/Kaggle/Avito/ItemInfo_train.csv"
-    val outFile = if(args.length > 1) args(1) 
-                  else "/home/kapil/Rough/Kaggle/Avito/ItemInfo_train_clean.csv"
-    val flushSize = if(args.length > 2) args(2).toInt else 1000000
-    val maxOpenLines = if(args.length > 3) args(3).toInt else 1000
+    val inFile = Utils.readArg(args, "input") 
+                 //"/home/kapil/Rough/Kaggle/Avito/ItemInfo_train.csv"
+    val outFile = Utils.readArg(args, "output", inFile+".clean.csv")
+                  // "/home/kapil/Rough/Kaggle/Avito/ItemInfo_train_clean.csv"
+    val flushSize = Utils.readArg(args, "flushSize", 1000000L)
+    val maxOpenLines = Utils.readArg(args, "maxOpenLines", 1000)
     
     cleanMultilineCsv(inFile, outFile, flushSize, maxOpenLines)
   }
