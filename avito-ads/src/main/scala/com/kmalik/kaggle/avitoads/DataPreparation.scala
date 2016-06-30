@@ -26,21 +26,21 @@ object DataPreparation {
     
     pairsDf.registerTempTable("pairs")
     infoDf.registerTempTable("info")
-    catDf.registerTempTable("category")
-    locDf.registerTempTable("location")
+    catDf.registerTempTable("cat")
+    locDf.registerTempTable("loc")
     
     val p2 = sqc.sql("select p.*, "+
     "i.itemID as i_itemID_1, i.categoryID as categoryID_1, i.title as title_1, "+
     "i.description as description_1, i.images_array as images_array_1, i.attrsJSON as attrsJSON_1, "+
     "i.price as price_1, i.locationID as locationID_1, i.metroID as metroID_1, "+
-    "i.lat as lat_1, i.lon as lon_1 from pair p join trainInfo i on p.itemID_1 = i.itemID")
+    "i.lat as lat_1, i.lon as lon_1 from pairs p join info i on p.itemID_1 = i.itemID")
     p2.registerTempTable("pairs2")
 
     val p3 = sqc.sql("select p.*, "+
     "i.itemID as i_itemID_2, i.categoryID as categoryID_2, i.title as title_2, "+
     "i.description as description_2, i.images_array as images_array_2, i.attrsJSON as attrsJSON_2, "+
     "i.price as price_2, i.locationID as locationID_2, i.metroID as metroID_2, "+
-    "i.lat as lat_2, i.lon as lon_2 from pairs2 p join trainInfo i on p.itemID_2 = i.itemID")
+    "i.lat as lat_2, i.lon as lon_2 from pairs2 p join info i on p.itemID_2 = i.itemID")
     p3.registerTempTable("pairs3")
     
     val p4 = sqc.sql("select p.*, l.regionID as regionID_1 from pairs3 p join loc l on p.locationID_1 = l.locationID")
