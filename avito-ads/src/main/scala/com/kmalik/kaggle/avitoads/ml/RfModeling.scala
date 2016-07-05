@@ -1,7 +1,10 @@
 package com.kmalik.kaggle.avitoads.ml
 
+import org.apache.commons.lang3.StringUtils
 import org.apache.spark.SparkContext
+import org.apache.spark.ml.CustomBinaryClassificationEvaluator
 import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.PipelineModel
 import org.apache.spark.ml.classification.RandomForestClassificationModel
 import org.apache.spark.ml.classification.RandomForestClassifier
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
@@ -9,9 +12,9 @@ import org.apache.spark.ml.feature.IndexToString
 import org.apache.spark.ml.feature.StringIndexer
 import org.apache.spark.ml.feature.VectorIndexer
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions._
+
 import com.kmalik.kaggle.utils.DfUtils
-import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
-import org.apache.spark.ml.CustomBinaryClassificationEvaluator
 
 object RfModeling {
   
@@ -61,14 +64,28 @@ object RfModeling {
                     .setRawPredictionCol("prediction")
                     .setMetricName(evaluationMetric)
 
-    val testMetric = evaluator.evaluate(testResult)    
-    sc.parallelize(Array[String](s"$evaluationMetric : $testMetric"), 1)
-      .saveAsTextFile(outputDir+"/TestMetric_" + evaluationMetric)
-              
-    val testPredictionLabels = testResult.select("predictedLabel", "label")
-    DfUtils.saveAsCsv(testPredictionLabels, outputDir+"/TestPredictions")
+    val testMetricValue = evaluator.evaluate(testResult)
     
-    (model, rfModel, modelParams)
+    if (StringUtils.isNotBlank(outputDir)) {
+      sc.parallelize(Array[String](s"$evaluationMetric : testMetricValue"), 1)
+        .saveAsTextFile(outputDir+"/TestMetric_" + evaluationMetric)
+                
+      val testPredictionLabels = testResult.select("predictedLabel", "label")
+      DfUtils.saveAsCsv(testPredictionLabels, outputDir+"/TestPredictions")
+    }
+    
+    (model, rfModel, modelParams, testMetricValue)
+  }
+  
+  def predict(model:PipelineModel, df:DataFrame, outputDir:String) = {
+    
+    val predictions = model.transform(df).coalesce(1)
+    
+    predictions.registerTempTable("predictions")
+    val output = df.sqlContext.sql(
+    "select monotonically_increasing_id() as id,predictedLabel as probability from predictions")
+    
+    DfUtils.saveAsCsv(output, outputDir+"/SubmitPredictions")
   }
   
   private def persistModel(sc:SparkContext,
@@ -81,12 +98,14 @@ object RfModeling {
                                     "RfEstimatorParams",
                                     rfModel.parent.explainParams())
     
-    sc.parallelize(Array[String](modelString), 1)
-      .saveAsTextFile(outputDir+"/RfModel")
-      
-    sc.parallelize(modelParams, 1)
-      .saveAsTextFile(outputDir+"/RfModelParams")
-      
+    if (StringUtils.isNotBlank(outputDir)) {                                
+      sc.parallelize(Array[String](modelString), 1)
+        .saveAsTextFile(outputDir+"/RfModel")
+        
+      sc.parallelize(modelParams, 1)
+        .saveAsTextFile(outputDir+"/RfModelParams")
+    }
+    
     modelParams
   }
   

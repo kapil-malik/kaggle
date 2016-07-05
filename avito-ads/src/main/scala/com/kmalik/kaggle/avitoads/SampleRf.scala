@@ -8,6 +8,7 @@ import com.kmalik.kaggle.avitoads.ml.MlUtils
 import com.kmalik.kaggle.utils.DfUtils
 import com.kmalik.kaggle.utils.Utils
 import com.kmalik.kaggle.avitoads.ml.RfModeling
+import org.apache.spark.ml.feature.StringIndexerModel
 
 object SampleRf extends Serializable {
   
@@ -31,35 +32,21 @@ object SampleRf extends Serializable {
     inputs.map(_.toString)
     	    .foreach(println)
 
-    // TrainMasterData header -
-    // itemID_1,itemID_2,isDuplicate,generationMethod,
-    // i_itemID_1,categoryID_1,title_1,description_1,images_array_1,attrsJSON_1,
-    // price_1,locationID_1,metroID_1,lat_1,lon_1,
-    // i_itemID_2,categoryID_2,title_2,description_2,images_array_2,attrsJSON_2,
-    // price_2,locationID_2,metroID_2,lat_2,lon_2,
-    // regionID_1,regionID_2,parentCategoryID_1,parentCategoryID_2
-    
     val labelColName = "isDuplicate"
     val catFtNames = 
       Seq("categoryID_1","locationID_1","regionID_1","parentCategoryID_1",
           "categoryID_2","locationID_2","regionID_2","parentCategoryID_2")
-          
-    val trainRawDf = DfUtils.load(sqc, dataFile, "com.databricks.spark.csv", 
-        Map("inferSchema"->"true", "header"->"true"))
-
-    // Select base features from master file          
-    val train1Df = trainRawDf.select(labelColName, catFtNames:_*)
-    train1Df.cache
- 
-    // index categorical features  
-    val (train2Df, newFtNames) = MlUtils.strIndexColumns(train1Df, catFtNames)
     
-    // convert to columns "label", "features"
-    val train3Df = MlUtils.standardize(train2Df, labelColName, newFtNames)
+    // Read from master file      
+    val rawDf = readCsv(sqc, dataFile)
     
-    val (model, rfModel, modelParams) = RfModeling.runTvSplit(train3Df, outputDir, seed, 
+    // feature processing
+    val (processedDf, catFtIndexers, indexedCatFtNames) = processTrainData(rawDf, catFtNames, labelColName) 
+    
+    // modeling
+    val (model, rfModel, modelParams, metricValue) = RfModeling.runTvSplit(processedDf, null, seed, 
       trainRatio, numTrees, maxDepth, maxBins, evaluationMetric)
-    
+          
     sc.stop
     
     inputs.map(_.toString)
@@ -67,6 +54,23 @@ object SampleRf extends Serializable {
     	    
     modelParams.foreach(println)
   }
+
+  private def readCsv(sqc:SQLContext, path:String) = {
+    DfUtils.load(sqc, path, "com.databricks.spark.csv", Map("inferSchema"->"true", "header"->"true"))  
+  }
   
+  private def processTrainData(df:DataFrame, catFtNames: Seq[String], labelColName:String) = {
+    // 1. Select base features from master file          
+    val df1 = df.select(labelColName, catFtNames:_*)
+    df1.cache
+ 
+    // 2. Index categorical features  
+    val (df2, catFtIndexers, newFtNames) = MlUtils.strIndexColumns(df1, catFtNames)
+    
+    // 3. Convert to columns "label", "features"
+    val df3 = MlUtils.standardize(df2, labelColName, newFtNames)
+    
+    (df3, catFtIndexers, newFtNames)
+  }
 
 }
