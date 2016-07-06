@@ -13,10 +13,88 @@ import org.apache.spark.ml.feature.StringIndexer
 import org.apache.spark.ml.feature.VectorIndexer
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
-
 import com.kmalik.kaggle.utils.DfUtils
+import org.apache.spark.ml.tuning.ParamGridBuilder
+import org.apache.spark.ml.tuning.CrossValidator
+import org.apache.spark.ml.tuning.CrossValidatorModel
 
 object RfModeling {
+
+// Uses binary classifier
+  def runCrossValidation(df:DataFrame, outputDir:String, 
+    seed:Long,
+    trainRatio:Double, numFolds:Int, 
+    numTreesOptions:Seq[Int], 
+    maxDepthOptions:Seq[Int], 
+    maxBinsOptions:Seq[Int], evaluationMetric:String) = {
+    val sc = df.sqlContext.sparkContext
+    val splits = df.randomSplit(Array(trainRatio, 1-trainRatio), seed = seed)
+    val train = splits(0)
+    val test = splits(1)
+    
+    val labelIndexer = new StringIndexer()
+                            .setInputCol("label")
+                            .setOutputCol("labelIndexed")
+                            .fit(df)
+
+    val featureIndexer = new VectorIndexer()
+                              .setInputCol("features")
+                              .setOutputCol("featuresIndexed")
+                              .setMaxCategories(100)
+                              .fit(df)
+
+    val rf = new RandomForestClassifier()
+                  .setLabelCol("labelIndexed")
+                  .setFeaturesCol("featuresIndexed")
+                  .setSeed(seed)
+        
+    val paramGrid = new ParamGridBuilder()
+                        .addGrid(rf.numTrees, numTreesOptions)
+                        .addGrid(rf.maxDepth, maxDepthOptions)
+                        .addGrid(rf.maxBins, maxBinsOptions)
+                        .build()
+                        
+    val evaluator = new CustomBinaryClassificationEvaluator()
+						            .setLabelCol("labelIndexed")
+                        .setRawPredictionCol("prediction")
+                        .setMetricName(evaluationMetric)
+                    
+    val crossValidator = new CrossValidator()
+                    					.setEstimator(rf)
+                    					.setEstimatorParamMaps(paramGrid)
+                    					.setEvaluator(evaluator)
+                    					.setNumFolds(numFolds)
+    
+    val labelConverter = new IndexToString()
+                          .setInputCol("prediction")
+                          .setOutputCol("predictedLabel")
+                          .setLabels(labelIndexer.labels)
+  
+    val pipeline = new Pipeline()
+                        .setStages(Array(labelIndexer, featureIndexer, crossValidator, labelConverter))
+  
+    val model = pipeline.fit(train)
+    
+    val cvModel = model.stages(2).asInstanceOf[CrossValidatorModel]
+    val rfModel = cvModel.bestModel.asInstanceOf[RandomForestClassificationModel]
+    
+    val modelParams = persistModel(sc, rfModel, outputDir)
+    
+    // Test the model on test set -
+    val testResult = model.transform(test)
+
+    val testMetricValue = evaluator.evaluate(testResult)
+    
+    if (StringUtils.isNotBlank(outputDir)) {
+      sc.parallelize(Array[String](s"$evaluationMetric : $testMetricValue"), 1)
+        .saveAsTextFile(outputDir+"/TestMetric_" + evaluationMetric)
+                
+      val testPredictionLabels = testResult.select("predictedLabel", "label")
+      DfUtils.saveAsCsv(testPredictionLabels, outputDir+"/TestPredictions")
+    }
+    
+    (model, rfModel, modelParams, testMetricValue)
+  }
   
 // Uses binary classifier
   def runTvSplit(df:DataFrame, outputDir:String, seed:Long,
@@ -43,6 +121,7 @@ object RfModeling {
                   .setNumTrees(numTrees)
                   .setMaxDepth(maxDepth)
                   .setMaxBins(maxBins)
+                  .setSeed(seed)
         
     val labelConverter = new IndexToString()
                           .setInputCol("prediction")
@@ -67,7 +146,7 @@ object RfModeling {
     val testMetricValue = evaluator.evaluate(testResult)
     
     if (StringUtils.isNotBlank(outputDir)) {
-      sc.parallelize(Array[String](s"$evaluationMetric : testMetricValue"), 1)
+      sc.parallelize(Array[String](s"$evaluationMetric : $testMetricValue"), 1)
         .saveAsTextFile(outputDir+"/TestMetric_" + evaluationMetric)
                 
       val testPredictionLabels = testResult.select("predictedLabel", "label")

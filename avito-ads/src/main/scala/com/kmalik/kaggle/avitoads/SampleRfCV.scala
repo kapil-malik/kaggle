@@ -10,7 +10,7 @@ import com.kmalik.kaggle.utils.Utils
 import com.kmalik.kaggle.avitoads.ml.RfModeling
 import org.apache.spark.ml.feature.StringIndexerModel
 
-object SampleRf extends Serializable {
+object SampleRfCV extends Serializable {
   
   def main(args:Array[String]):Unit = {
     val sc = new SparkContext()
@@ -18,16 +18,19 @@ object SampleRf extends Serializable {
     
     val dataFile = Utils.readArg(args, "data")
     val outputDir = Utils.readArg(args, "output", dataFile+".out."+System.currentTimeMillis())
-    val trainRatio = Utils.readArg(args, "trainRatio", 0.8)
+    val partitions = Utils.readArg(args, "partitions", 64)
     
-    val numTrees = Utils.readArg(args, "numTrees", 10)
-    val maxDepth = Utils.readArg(args, "maxDepth", 5)
-    val maxBins = Utils.readArg(args, "maxBins", 100)
+    val trainRatio = Utils.readArg(args, "trainRatio", 0.8)    
+    val numFolds = Utils.readArg(args, "numFolds", 5)
+    
+    val numTreesOpts = Utils.readArg(args, "numTreesOpts", "10")
+    val maxDepthOpts = Utils.readArg(args, "maxDepthOpts", "5")
+    val maxBinsOpts = Utils.readArg(args, "maxBinsOpts", "100")
     val evaluationMetric = Utils.readArg(args, "evaluationMetric", "areaUnderROC")
     val seed = Utils.readArg(args, "seed", 13309)
     
-    val inputs = Array(dataFile, outputDir, trainRatio,
-      numTrees, maxDepth, maxBins, evaluationMetric, seed)
+    val inputs = Array(dataFile, outputDir, partitions, trainRatio, numFolds,
+      numTreesOpts, maxDepthOpts, maxBinsOpts, evaluationMetric, seed)
           
     inputs.map(_.toString)
     	    .foreach(println)
@@ -38,14 +41,19 @@ object SampleRf extends Serializable {
           "categoryID_2","locationID_2","regionID_2","parentCategoryID_2")
     
     // Read from master file      
-    val rawDf = readCsv(sqc, dataFile)
+    val rawDf = readCsv(sqc, dataFile, partitions)
     
     // feature processing
     val (processedDf, catFtIndexers, indexedCatFtNames) = processTrainData(rawDf, catFtNames, labelColName) 
     
     // modeling
-    val (model, rfModel, modelParams, metricValue) = RfModeling.runTvSplit(processedDf, outputDir, seed, 
-      trainRatio, numTrees, maxDepth, maxBins, evaluationMetric)
+    val numTreesOptions = numTreesOpts.split(",").map(_.toInt)
+    val maxDepthOptions = maxDepthOpts.split(",").map(_.toInt)
+    val maxBinsOptions = maxBinsOpts.split(",").map(_.toInt)
+    
+    val (model, rfModel, modelParams, metricValue) = RfModeling.runCrossValidation(
+      processedDf, outputDir, seed, trainRatio, numFolds, 
+      numTreesOptions, maxDepthOptions, maxBinsOptions, evaluationMetric)
           
     sc.stop
     
@@ -55,8 +63,11 @@ object SampleRf extends Serializable {
     modelParams.foreach(println)
   }
 
-  private def readCsv(sqc:SQLContext, path:String) = {
-    DfUtils.load(sqc, path, "com.databricks.spark.csv", Map("inferSchema"->"true", "header"->"true"))  
+  private def readCsv(sqc:SQLContext, path:String, partitions:Int) = {
+    val df = DfUtils.load(sqc, path, 
+        "com.databricks.spark.csv", 
+        Map("inferSchema"->"true", "header"->"true"))
+    if (partitions > 0) df.coalesce(partitions) else df
   }
   
   private def processTrainData(df:DataFrame, catFtNames: Seq[String], labelColName:String) = {
