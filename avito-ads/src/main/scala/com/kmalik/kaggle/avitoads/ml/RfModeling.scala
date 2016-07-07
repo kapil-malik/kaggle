@@ -80,12 +80,18 @@ object RfModeling {
     
     val modelParams = persistModel(sc, rfModel, outputDir)
     
-    // Test the model on test set -
+    // Apply model on train set -
+    val trainResult = model.transform(train)
+    val trainMetricValue = evaluator.evaluate(trainResult)
+    
+    // Apply model on test set -
     val testResult = model.transform(test)
-
     val testMetricValue = evaluator.evaluate(testResult)
     
     if (StringUtils.isNotBlank(outputDir)) {
+      sc.parallelize(Array[String](s"$evaluationMetric : $trainMetricValue"), 1)
+        .saveAsTextFile(outputDir+"/TrainMetric_" + evaluationMetric)
+        
       sc.parallelize(Array[String](s"$evaluationMetric : $testMetricValue"), 1)
         .saveAsTextFile(outputDir+"/TestMetric_" + evaluationMetric)
                 
@@ -136,16 +142,23 @@ object RfModeling {
     val rfModel = model.stages(2).asInstanceOf[RandomForestClassificationModel]    
     val modelParams = persistModel(sc, rfModel, outputDir)
     
-    // Test the model on test set -
-    val testResult = model.transform(test)
     val evaluator = new CustomBinaryClassificationEvaluator()
 						        .setLabelCol("labelIndexed")
                     .setRawPredictionCol("prediction")
                     .setMetricName(evaluationMetric)
 
+    // Apply model on train set -
+    val trainResult = model.transform(train)
+    val trainMetricValue = evaluator.evaluate(trainResult)
+    
+    // Apply model on test set -
+    val testResult = model.transform(test)
     val testMetricValue = evaluator.evaluate(testResult)
     
     if (StringUtils.isNotBlank(outputDir)) {
+      sc.parallelize(Array[String](s"$evaluationMetric : $trainMetricValue"), 1)
+        .saveAsTextFile(outputDir+"/TrainMetric_" + evaluationMetric)
+                
       sc.parallelize(Array[String](s"$evaluationMetric : $testMetricValue"), 1)
         .saveAsTextFile(outputDir+"/TestMetric_" + evaluationMetric)
                 

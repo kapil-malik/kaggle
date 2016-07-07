@@ -68,7 +68,7 @@ object SampleRf extends Serializable {
     val (df2, catFtIndexers, newFtNames) = MlUtils.strIndexColumns(df1, catFtNames)
     
     // 3. Convert to columns "label", "features"
-    val df3 = MlUtils.standardize(df2, labelColName, newFtNames)
+    val df3 = MlUtils.standardizeLabeled(df2, labelColName, newFtNames)
     
     (df3, catFtIndexers, newFtNames)
   }

@@ -97,7 +97,7 @@ object SampleRfSubmit extends Serializable {
     val df2 = catFtIndexers.foldLeft(df1)((df,indexer)=> indexer.transform(df))
     
     // 3. Convert to columns "label", "features"
-    val df3 = MlUtils.standardize(df2, labelColName, indexedFtNames)
+    val df3 = MlUtils.standardizeLabeled(df2, labelColName, indexedFtNames)
     
     df3
   }
@@ -112,7 +112,7 @@ object SampleRfSubmit extends Serializable {
     val df2 = catFtIndexers.foldLeft(df1)((df,indexer)=> indexer.transform(df))
     
     // 3. Convert to columns "features"
-    val df3 = MlUtils.standardize(df2, indexedFtNames)
+    val df3 = MlUtils.standardizeUnlabeled(df2, indexedFtNames)
     
     df3
   }
